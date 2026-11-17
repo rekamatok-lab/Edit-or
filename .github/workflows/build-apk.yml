@@ -13,14 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # מוצא אוטומטית את התיקייה שבה נמצא capacitor.config.json (גם אם היא בתת-תיקייה)
-      - name: Find app folder
-        run: |
-          F=$(find . -name capacitor.config.json -not -path '*/node_modules/*' | head -1)
-          if [ -z "$F" ]; then echo "capacitor.config.json not found"; exit 1; fi
-          echo "APP_DIR=$(dirname "$F")" >> "$GITHUB_ENV"
-          echo "Found app in: $(dirname "$F")"
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -31,37 +23,48 @@ jobs:
           java-version: 17
 
       - name: Install dependencies
-        working-directory: ${{ env.APP_DIR }}
         run: npm install
 
       - name: Add Android platform
-        working-directory: ${{ env.APP_DIR }}
         run: npx cap add android
 
-      - name: Generate icons
-        working-directory: ${{ env.APP_DIR }}
-        continue-on-error: true
-        run: npx @capacitor/assets generate --android --iconBackgroundColor '#0e0f13' --splashBackgroundColor '#0e0f13'
-
       - name: Patch MainActivity
-        working-directory: ${{ env.APP_DIR }}
-        run: node scripts/patch-android.js
+        run: |
+          cat > android/app/src/main/java/com/studio/videostudio/MainActivity.java <<'EOF'
+          package com.studio.videostudio;
+
+          import android.os.Bundle;
+          import android.view.WindowManager;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+            @Override
+            public void onCreate(Bundle b) {
+              super.onCreate(b);
+              getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+            @Override
+            public void onStart() {
+              super.onStart();
+              try { getBridge().getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false); } catch (Exception e) {}
+            }
+          }
+          EOF
 
       - name: Sync
-        working-directory: ${{ env.APP_DIR }}
         run: npx cap sync android
 
       - name: Build debug APK
-        working-directory: ${{ env.APP_DIR }}/android
+        working-directory: android
         run: chmod +x gradlew && ./gradlew assembleDebug
 
       - uses: actions/upload-artifact@v4
         with:
           name: video-studio-apk
-          path: ${{ env.APP_DIR }}/android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
 
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: Video Studio build ${{ github.run_number }}
-          files: ${{ env.APP_DIR }}/android/app/build/outputs/apk/debug/app-debug.apk
+          files: android/app/build/outputs/apk/debug/app-debug.apk
