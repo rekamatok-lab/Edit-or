@@ -13,10 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Find app folder
+      - name: Unpack project
         run: |
+          if [ -f video-studio-android.zip ]; then unzip -q -o video-studio-android.zip -d app; fi
           F=$(find . -name package.json -not -path '*/node_modules/*' | head -1)
-          if [ -z "$F" ]; then echo "package.json not found in repo"; ls -R | head -50; exit 1; fi
+          if [ -z "$F" ]; then echo "package.json not found"; ls -R | head -50; exit 1; fi
           echo "APP_DIR=$(dirname "$F")" >> "$GITHUB_ENV"
           echo "Found app in: $(dirname "$F")"
 
@@ -37,29 +38,14 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: npx cap add android
 
+      - name: Generate icons
+        working-directory: ${{ env.APP_DIR }}
+        continue-on-error: true
+        run: npx @capacitor/assets generate --android --iconBackgroundColor '#0e0f13' --splashBackgroundColor '#0e0f13'
+
       - name: Patch MainActivity
         working-directory: ${{ env.APP_DIR }}
-        run: |
-          cat > android/app/src/main/java/com/studio/videostudio/MainActivity.java <<'EOF'
-          package com.studio.videostudio;
-
-          import android.os.Bundle;
-          import android.view.WindowManager;
-          import com.getcapacitor.BridgeActivity;
-
-          public class MainActivity extends BridgeActivity {
-            @Override
-            public void onCreate(Bundle b) {
-              super.onCreate(b);
-              getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            }
-            @Override
-            public void onStart() {
-              super.onStart();
-              try { getBridge().getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false); } catch (Exception e) {}
-            }
-          }
-          EOF
+        run: node scripts/patch-android.js
 
       - name: Sync
         working-directory: ${{ env.APP_DIR }}
